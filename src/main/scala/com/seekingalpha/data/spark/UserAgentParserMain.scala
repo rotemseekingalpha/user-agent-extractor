@@ -40,7 +40,7 @@ object UserAgentParserMain {
 
     val outputDir = args(0) + File.separator + "output" + File.separator
     if (!skip) {
-      logger.info(s"Going to read from ${path}")
+      logger.info(s"Going to read from $path")
 
       val ua: Broadcast[UserAgentAnalyzer] = spark.sparkContext.broadcast(UserAgentAnalyzer.newBuilder().build())
       val udfParseUserAgent: UserDefinedFunction = udf((x: String) => userAgentParser(x, ua))
@@ -48,7 +48,7 @@ object UserAgentParserMain {
       val df = spark.read.parquet(path)
         .withColumn(colNameUserAgentJson, udfParseUserAgent(col(colNameUserAgent)))
 
-      val dsUserAgent = df.select(col(colNameUserAgentJson)).as[String](Encoders.STRING)
+      val dsUserAgent = df.select(col(colNameUserAgentJson)).as[String](Encoders.STRING).limit(10)
       val dfUserAgent = spark.read.json(dsUserAgent)
 
       val userAgentDf = df.withColumn(colNameUserAgentStruct, from_json(col(colNameUserAgentJson), dfUserAgent.schema))
@@ -65,11 +65,21 @@ object UserAgentParserMain {
 
       FileUtils.deleteQuietly(new File(outputDir))
       userAgentDf.write.parquet(outputDir)
-      logger.info(userAgentDf.select(colNameAgentName).distinct().collect().map(_.getString(0)).mkString(","))
     }
 
     val df = spark.read.parquet(outputDir.concat("*.parquet"))
-    logger.info(df.select(colNameAgentName).distinct().collect().map(_.getString(0)).mkString("\n"))
+
+    val outputPath = args(0) + File.separator + "grouping" + File.separator
+    FileUtils.deleteQuietly(new File(outputPath))
+
+    df.select(colNameOsName, colNameOsVersion, colNameAgentName, colNameAgentVersion, colNameDeviceBrand, colNameDeviceClass)
+      .groupBy(colNameOsName, colNameOsVersion, colNameAgentName, colNameAgentVersion, colNameDeviceBrand, colNameDeviceClass)
+      .count()
+      .coalesce(1)
+      .write
+      .format("com.databricks.spark.csv")
+      .option("header", value = true)
+      .save(args(0) + File.separator + "grouping" + File.separator)
 
     spark.close()
   }

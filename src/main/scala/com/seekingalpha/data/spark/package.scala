@@ -11,6 +11,9 @@ package object spark {
 
   private final val logger: Logger = LoggerFactory.getLogger(getClass)
 
+  lazy val seekingAlpha = "SeekingAlpha"
+  lazy val comSeekingAlpha = s"com.${seekingAlpha.toLowerCase}"
+
   lazy val colNameUserAgent = "user_agent"
   lazy val colNameUserAgentJson = "user_agent_json"
   lazy val colNameUserAgentStruct = "user_agent_struct"
@@ -35,9 +38,10 @@ package object spark {
   lazy val colNameUserAgentAgentNameVersion: String = "AgentNameVersion"
 
   private lazy val regex = "^sa-.*-wrapper$".r
+
   private def saParseUserAgent(userAgentString: String): Map[String, String] = {
     try {
-      if (userAgentString.contains("SeekingAlpha")) {
+      if (userAgentString.contains(seekingAlpha)) {
         val parts = userAgentString.split(";")
         // old iOS App
         val last = parts.last.split(" ")
@@ -51,8 +55,9 @@ package object spark {
         val m = Map(colNameUserAgentOsName -> osName, colNameUserAgentOsVersion -> os(1))
         // old iOS App
         if (last.length == 7) {
-          val agentVersion = last(5).split("/").last
-          val agentName = last(6).split("/").last
+          val agentVersion: String = last(5).split("/").last
+          val agentName: String = last(6).split("/").last
+          if (agentName.equals("VER")) logger.error(userAgentString)
           m ++ Map(colNameUserAgentAgentName -> agentName, colNameUserAgentAgentVersion -> agentVersion)
         }
         else m
@@ -92,7 +97,7 @@ package object spark {
         val os = m(colNameUserAgentOsName)
         if (os.toLowerCase.startsWith("unknown") || os.contains("??")) {
           val sa: Map[String, String] = saParseUserAgent(str)
-          m ++ sa
+          mergeMaps(m, sa)
         }
         else m
       }
@@ -102,9 +107,7 @@ package object spark {
   }
 
   def mergeMaps[K, V](m1: Map[K, V], m2: Map[K, V]): Map[K, V] = {
-    val keys = m1.keySet ++ m2.keySet
-    keys.map(k => {
-      if (m2.contains(k)) (k, m2(k)) else (k, m1(k))
-    }).toMap
+    if (m2.isEmpty) m1
+    else (m1.keySet ++ m2.keySet).map(k => if (m2.contains(k)) (k, m2(k)) else (k, m1(k))).toMap
   }
 }
